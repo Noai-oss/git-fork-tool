@@ -1,6 +1,8 @@
 # git-fork-tool
 
-A lightweight CLI for working with GitCode fork repositories.
+A lightweight CLI for working with Git fork repositories.
+
+Currently supports GitCode.
 
 ## Usage
 

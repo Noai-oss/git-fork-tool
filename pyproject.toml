@@ -1,7 +1,7 @@
 [project]
 name = "git-fork-tool"
 dynamic = ["version"]
-description = "A lightweight CLI for GitCode fork repositories."
+description = "A lightweight CLI for Git fork repositories."
 readme = "README.md"
 authors = [
     { name = "ooooo-create", email = "3164076421@qq.com" }
