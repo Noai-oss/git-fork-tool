@@ -1,0 +1,53 @@
+[project]
+name = "git-fork-tool"
+dynamic = ["version"]
+description = "A lightweight CLI for GitCode fork repositories."
+readme = "README.md"
+authors = [
+    { name = "ooooo-create", email = "3164076421@qq.com" }
+]
+requires-python = ">=3.13"
+dependencies = [
+    "click>=8.4.1",
+]
+
+[project.scripts]
+git-fork-tool = "git_fork_tool:cli"
+gft = "git_fork_tool:cli"
+
+[build-system]
+requires = ["hatchling", "uv-dynamic-versioning"]
+build-backend = "hatchling.build"
+
+[tool.hatch.version]
+source = "uv-dynamic-versioning"
+
+[tool.uv-dynamic-versioning]
+vcs = "git"
+style = "pep440"
+bump = true
+
+[tool.uv]
+cache-keys = [
+  { file = "pyproject.toml" },
+  { git = { commit = true, tags = true } },
+]
+
+[dependency-groups]
+dev = [
+    "ruff>=0.15.18",
+    "ty>=0.0.51",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/git_fork_tool"]
+artifacts = ["src/git_fork_tool/_version.py"]
+
+[tool.hatch.build.targets.sdist]
+artifacts = ["src/git_fork_tool/_version.py"]
+
+[tool.hatch.build.hooks.version]
+path = "src/git_fork_tool/_version.py"
+template = '''
+__version__ = "{version}"
+'''
