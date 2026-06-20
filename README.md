@@ -2,14 +2,16 @@
 
 A lightweight CLI for working with Git fork repositories.
 
-Currently supports GitCode.
+Currently supports GitCode and GitHub.
 
 ## Usage
 
-Set a GitCode token:
+Set an access token:
 
 ```sh
 export GC_TOKEN=your_token
+# or
+export GH_TOKEN=your_token
 ```
 
 Add the parent repository as `upstream`:
@@ -30,4 +32,9 @@ Trigger a fork sync:
 gft sync --branch main
 ```
 
-`GITCODE_TOKEN` can be used instead of `GC_TOKEN`.
+## Notes
+
+- `GITCODE_TOKEN` can be used instead of `GC_TOKEN`.
+- `GITHUB_TOKEN` can be used instead of `GH_TOKEN`.
+- For GitHub, `--status` uses the compare API.
+- Triggering GitHub sync requires contents write permission.
