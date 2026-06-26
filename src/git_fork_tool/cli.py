@@ -12,6 +12,7 @@ import click
 
 GITCODE_API_HOST = "api.gitcode.com"
 GITHUB_API_HOST = "api.github.com"
+UPSTREAM_REMOTE = "upstream"
 
 
 class GitPlatform(Enum):
@@ -265,43 +266,78 @@ def get_owner_repo_from_origin_remote(
 
 def get_origin_remote() -> str:
     """Return the origin remote URL for the current repository."""
-    cmds = ["git", "remote", "get-url", "origin"]
-    res = subprocess.run(cmds, capture_output=True, text=True)
-    if res.returncode != 0:
-        raise click.ClickException(f"failed to get origin remote: {res.stderr.strip()}")
-    return res.stdout.strip()
+    return git_output(["remote", "get-url", "origin"])
 
 
 def is_git_repo() -> bool:
     """Return whether the current directory is inside a git work tree."""
-    cmds = ["git", "rev-parse", "--is-inside-work-tree"]
-    res = subprocess.run(cmds, capture_output=True, text=True)
+    res = run_git(["rev-parse", "--is-inside-work-tree"], check=False)
     return res.returncode == 0 and res.stdout.strip() == "true"
+
+
+def ensure_git_repo() -> None:
+    """Raise if the current directory is not inside a git work tree."""
+    if not is_git_repo():
+        raise click.ClickException("not a git repository")
+
+
+def run_git(args: list[str], check: bool = True) -> subprocess.CompletedProcess[str]:
+    """Run a git command and optionally raise a ClickException on failure."""
+    res = subprocess.run(["git", *args], capture_output=True, text=True)
+    if check and res.returncode != 0:
+        detail = res.stderr.strip() or res.stdout.strip()
+        raise click.ClickException(f"git {' '.join(args)} failed: {detail}")
+    return res
+
+
+def git_output(args: list[str]) -> str:
+    """Run a git command and return stripped stdout."""
+    return run_git(args).stdout.strip()
+
+
+def remote_exists(remote: str) -> bool:
+    """Return whether a git remote exists."""
+    return run_git(["remote", "get-url", remote], check=False).returncode == 0
+
+
+def pr_remote_ref(remote: str, pr_number: int) -> str:
+    """Return the local remote-tracking ref used for a PR."""
+    return f"refs/remotes/{remote}/pr/{pr_number}"
+
+
+def pr_refspec(remote: str, pr_number: int) -> str:
+    """Return the fetch refspec used for a PR."""
+    return f"+refs/pull/{pr_number}/head:{pr_remote_ref(remote, pr_number)}"
+
+
+def fetch_pr_ref(pr_number: int, remote: str) -> str:
+    """Fetch an upstream PR into a stable local remote-tracking ref."""
+    if not remote_exists(remote):
+        raise click.ClickException(f"remote {remote!r} does not exist")
+
+    ref = pr_remote_ref(remote, pr_number)
+    run_git(["fetch", remote, pr_refspec(remote, pr_number)])
+    return ref
 
 
 def set_upstream(owner: str, repo: str, prefix: str, suffix: str) -> None:
     """Add the parent repository as the upstream remote."""
     upstream_url = f"{prefix}{owner}/{repo}{suffix}"
-    cmds = ["git", "remote", "add", "upstream", upstream_url]
-    res = subprocess.run(cmds, capture_output=True, text=True)
-    if res.returncode != 0:
+    if remote_exists(UPSTREAM_REMOTE):
+        current_url = git_output(["remote", "get-url", UPSTREAM_REMOTE])
+        if current_url == upstream_url:
+            click.echo(f"Upstream remote already configured: {owner}/{repo}")
+            return
         raise click.ClickException(
-            f"failed to add upstream remote: {res.stderr.strip()}"
+            f"upstream remote already exists with a different URL: {current_url}"
         )
+    run_git(["remote", "add", UPSTREAM_REMOTE, upstream_url])
     click.echo(f"Upstream remote added: {owner}/{repo}")
 
 
-@click.group()
-def cli() -> None:
-    """Git Fork Tool - Manage fork relationships"""
-    pass
-
-
-@cli.command()
-def setup() -> None:
-    """Setup upstream remote for fork repository"""
-    if not is_git_repo():
-        raise click.ClickException("not a git repository")
+def setup_upstream_for_current_repo() -> None:
+    """Setup upstream remote for the current fork repository."""
+    ensure_git_repo()
     origin_url = get_origin_remote()
     owner, repo, prefix, suffix, git_platform = get_owner_repo_from_origin_remote(
         origin_url
@@ -318,19 +354,9 @@ def setup() -> None:
     set_upstream(parent_owner, parent_repo, prefix, suffix)
 
 
-@cli.command()
-@click.option("--branch", "-b", required=True, help="Branch to sync from upstream")
-@click.option(
-    "--status",
-    "-s",
-    is_flag=True,
-    default=False,
-    help="Only show sync status without triggering sync",
-)
-def sync(branch: str, status: bool) -> None:
-    """Sync fork repository with upstream source repository"""
-    if not is_git_repo():
-        raise click.ClickException("not a git repository")
+def sync_fork_branch(branch: str, status: bool) -> None:
+    """Sync a fork branch with its upstream source repository."""
+    ensure_git_repo()
     origin_url = get_origin_remote()
     owner, repo, _, _, git_platform = get_owner_repo_from_origin_remote(origin_url)
     click.echo(f"Fork: {owner}/{repo}", err=True)
@@ -352,3 +378,96 @@ def sync(branch: str, status: bool) -> None:
     click.echo(f"Syncing fork with upstream (branch: {branch})...", err=True)
     result = trigger_sync(git_platform, owner, repo, token, branch)
     click.echo(json.dumps(result, ensure_ascii=False))
+
+
+def resolve_branch(branch_arg: str | None, branch_option: str | None) -> str:
+    """Resolve a branch from positional and option forms."""
+    if branch_arg and branch_option and branch_arg != branch_option:
+        raise click.ClickException("pass the branch either as BRANCH or --branch")
+    branch = branch_option or branch_arg
+    if not branch:
+        raise click.ClickException("missing branch: pass BRANCH or --branch")
+    return branch
+
+
+@click.group()
+def cli() -> None:
+    """Git Fork Tool - Manage fork relationships."""
+    pass
+
+
+@cli.group()
+def repo() -> None:
+    """Manage fork repository remotes and sync."""
+    pass
+
+
+@repo.command("init")
+def repo_init() -> None:
+    """Setup upstream remote for fork repository."""
+    setup_upstream_for_current_repo()
+
+
+@repo.command("sync")
+@click.argument("branch_arg", required=False, metavar="BRANCH")
+@click.option("--branch", "-b", "branch_option", help="Branch to sync")
+@click.option(
+    "--status",
+    "-s",
+    is_flag=True,
+    default=False,
+    help="Only show sync status without triggering sync",
+)
+def repo_sync(branch_arg: str | None, branch_option: str | None, status: bool) -> None:
+    """Sync fork repository with upstream source repository."""
+    sync_fork_branch(resolve_branch(branch_arg, branch_option), status)
+
+
+@cli.group()
+def pr() -> None:
+    """Work with upstream pull requests."""
+    pass
+
+
+@pr.command("fetch")
+@click.argument("pr_number", type=int, metavar="PR_NUMBER")
+@click.option(
+    "--remote",
+    "-r",
+    default=UPSTREAM_REMOTE,
+    show_default=True,
+    help="Remote that contains pull request refs",
+)
+def pr_fetch(pr_number: int, remote: str) -> None:
+    """Fetch a pull request and print its local ref."""
+    ensure_git_repo()
+    ref = fetch_pr_ref(pr_number, remote)
+    click.echo(ref)
+
+
+@pr.command("ref")
+@click.argument("pr_number", type=int, metavar="PR_NUMBER")
+@click.option(
+    "--remote",
+    "-r",
+    default=UPSTREAM_REMOTE,
+    show_default=True,
+    help="Remote name used for the local PR ref",
+)
+def pr_ref(pr_number: int, remote: str) -> None:
+    """Print the local ref used for a pull request."""
+    click.echo(pr_remote_ref(remote, pr_number))
+
+
+@pr.command("refspec")
+@click.argument("pr_number", type=int, metavar="PR_NUMBER")
+@click.option(
+    "--remote",
+    "-r",
+    default=UPSTREAM_REMOTE,
+    show_default=True,
+    help="Remote name used for the local PR ref",
+)
+def pr_refspec_command(pr_number: int, remote: str) -> None:
+    """Print the refspec used to fetch a pull request."""
+    click.echo(pr_refspec(remote, pr_number))
