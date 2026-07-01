@@ -11,6 +11,11 @@ dependencies = [
     "click>=8.4.1",
 ]
 
+[project.urls]
+Homepage = "https://github.com/Noai-oss/git-fork-tool"
+Repository = "https://github.com/Noai-oss/git-fork-tool"
+Issues = "https://github.com/Noai-oss/git-fork-tool/issues"
+
 [project.scripts]
 git-fork-tool = "git_fork_tool:cli"
 gft = "git_fork_tool:cli"
