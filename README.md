@@ -76,9 +76,13 @@ gft pr ref 123
 gft pr refspec 123
 ```
 
+`gft pr fetch` and `gft pr refspec` detect the platform from the remote URL.
+
 ## Notes
 
 - `GITCODE_TOKEN` can be used instead of `GC_TOKEN`.
 - `GITHUB_TOKEN` can be used instead of `GH_TOKEN`.
+- GitHub PR refs use `refs/pull/<number>/head`; GitCode MR refs use
+  `refs/merge-requests/<number>/head`.
 - For GitHub, `--status` uses the compare API.
 - Triggering GitHub sync requires contents write permission.
